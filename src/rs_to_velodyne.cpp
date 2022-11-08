@@ -2,7 +2,7 @@
 #include <ros/ros.h>
 
 #include <sensor_msgs/PointCloud2.h>
-
+#include <sensor_msgs/point_cloud2_iterator.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl_conversions/pcl_conversions.h>
@@ -77,7 +77,7 @@ bool has_nan(T point) {
     // remove nan point, or the feature assocaion will crash, the surf point will containing nan points
     // pcl remove nan not work normally
     // ROS_ERROR("Containing nan point!");
-    if (pcl_isnan(point.x) || pcl_isnan(point.y) || pcl_isnan(point.z)) {
+    if (std::isnan(point.x) || std::isnan(point.y) || std::isnan(point.z)) {
         return true;
     } else {
         return false;
@@ -85,14 +85,14 @@ bool has_nan(T point) {
 }
 
 template<typename T>
-void publish_points(T &new_pc, const sensor_msgs::PointCloud2 &old_msg) {
+void publish_points(T &new_pc, const std_msgs::Header & msg_header) {
     // pc properties
     new_pc->is_dense = true;
-
+    
     // publish
     sensor_msgs::PointCloud2 pc_new_msg;
     pcl::toROSMsg(*new_pc, pc_new_msg);
-    pc_new_msg.header = old_msg.header;
+    pc_new_msg.header = msg_header;
     pc_new_msg.header.frame_id = "velodyne";
     pubRobosensePC.publish(pc_new_msg);
 }
@@ -101,7 +101,7 @@ void rsHandler_XYZI(sensor_msgs::PointCloud2 pc_msg) {
     pcl::PointCloud<pcl::PointXYZI>::Ptr pc(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::PointCloud<VelodynePointXYZIR>::Ptr pc_new(new pcl::PointCloud<VelodynePointXYZIR>());
     pcl::fromROSMsg(pc_msg, *pc);
-
+    
     // to new pointcloud
     for (int point_id = 0; point_id < pc->points.size(); ++point_id) {
         if (has_nan(pc->points[point_id]))
@@ -121,7 +121,7 @@ void rsHandler_XYZI(sensor_msgs::PointCloud2 pc_msg) {
         pc_new->points.push_back(new_point);
     }
 
-    publish_points(pc_new, pc_msg);
+    publish_points(pc_new, pc_msg.header);
 }
 
 
@@ -175,22 +175,25 @@ void add_time(const typename pcl::PointCloud<T_in_p>::Ptr &pc_in,
 void rsHandler_XYZIRT(const sensor_msgs::PointCloud2 &pc_msg) {
     pcl::PointCloud<RsPointXYZIRT>::Ptr pc_in(new pcl::PointCloud<RsPointXYZIRT>());
     pcl::fromROSMsg(pc_msg, *pc_in);
-
+    
     if (output_type == "XYZIRT") {
         pcl::PointCloud<VelodynePointXYZIRT>::Ptr pc_out(new pcl::PointCloud<VelodynePointXYZIRT>());
         handle_pc_msg<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);
         add_ring<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);
         add_time<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);
-        publish_points(pc_out, pc_msg);
+        sensor_msgs::PointCloud2ConstIterator<double> iter_time(pc_msg,"timestamp");
+        std_msgs::Header real_header = pc_msg.header;
+        real_header.stamp = ros::Time().fromSec(*iter_time);
+        publish_points(pc_out, real_header);
     } else if (output_type == "XYZIR") {
         pcl::PointCloud<VelodynePointXYZIR>::Ptr pc_out(new pcl::PointCloud<VelodynePointXYZIR>());
         handle_pc_msg<RsPointXYZIRT, VelodynePointXYZIR>(pc_in, pc_out);
         add_ring<RsPointXYZIRT, VelodynePointXYZIR>(pc_in, pc_out);
-        publish_points(pc_out, pc_msg);
+        publish_points(pc_out, pc_msg.header);
     } else if (output_type == "XYZI") {
         pcl::PointCloud<pcl::PointXYZI>::Ptr pc_out(new pcl::PointCloud<pcl::PointXYZI>());
         handle_pc_msg<RsPointXYZIRT, pcl::PointXYZI>(pc_in, pc_out);
-        publish_points(pc_out, pc_msg);
+        publish_points(pc_out, pc_msg.header);
     }
 }
 
