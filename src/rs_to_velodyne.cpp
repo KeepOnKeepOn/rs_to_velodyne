@@ -8,7 +8,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 std::string output_type;
-
+double timeOffset;
 static int RING_ID_MAP_RUBY[] = {
         3, 66, 33, 96, 11, 74, 41, 104, 19, 82, 49, 112, 27, 90, 57, 120,
         35, 98, 1, 64, 43, 106, 9, 72, 51, 114, 17, 80, 59, 122, 25, 88,
@@ -101,7 +101,8 @@ void rsHandler_XYZI(sensor_msgs::PointCloud2 pc_msg) {
     pcl::PointCloud<pcl::PointXYZI>::Ptr pc(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::PointCloud<VelodynePointXYZIR>::Ptr pc_new(new pcl::PointCloud<VelodynePointXYZIR>());
     pcl::fromROSMsg(pc_msg, *pc);
-    
+    std_msgs::Header real_header = pc_msg.header;
+    real_header.stamp = ros::Time().fromSec(pc_msg.header.stamp.toSec() + timeOffset);
     // to new pointcloud
     for (int point_id = 0; point_id < pc->points.size(); ++point_id) {
         if (has_nan(pc->points[point_id]))
@@ -121,7 +122,7 @@ void rsHandler_XYZI(sensor_msgs::PointCloud2 pc_msg) {
         pc_new->points.push_back(new_point);
     }
 
-    publish_points(pc_new, pc_msg.header);
+    publish_points(pc_new, real_header);
 }
 
 
@@ -175,31 +176,32 @@ void add_time(const typename pcl::PointCloud<T_in_p>::Ptr &pc_in,
 void rsHandler_XYZIRT(const sensor_msgs::PointCloud2 &pc_msg) {
     pcl::PointCloud<RsPointXYZIRT>::Ptr pc_in(new pcl::PointCloud<RsPointXYZIRT>());
     pcl::fromROSMsg(pc_msg, *pc_in);
-    
+    std_msgs::Header real_header = pc_msg.header;
+    sensor_msgs::PointCloud2ConstIterator<double> iter_time(pc_msg,"timestamp");
+    real_header.stamp = ros::Time().fromSec(*iter_time + timeOffset);
     if (output_type == "XYZIRT") {
         pcl::PointCloud<VelodynePointXYZIRT>::Ptr pc_out(new pcl::PointCloud<VelodynePointXYZIRT>());
         handle_pc_msg<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);
         add_ring<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);
-        add_time<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);
-        sensor_msgs::PointCloud2ConstIterator<double> iter_time(pc_msg,"timestamp");
-        std_msgs::Header real_header = pc_msg.header;
-        real_header.stamp = ros::Time().fromSec(*iter_time);
+        add_time<RsPointXYZIRT, VelodynePointXYZIRT>(pc_in, pc_out);        
         publish_points(pc_out, real_header);
     } else if (output_type == "XYZIR") {
         pcl::PointCloud<VelodynePointXYZIR>::Ptr pc_out(new pcl::PointCloud<VelodynePointXYZIR>());
         handle_pc_msg<RsPointXYZIRT, VelodynePointXYZIR>(pc_in, pc_out);
         add_ring<RsPointXYZIRT, VelodynePointXYZIR>(pc_in, pc_out);
-        publish_points(pc_out, pc_msg.header);
+        publish_points(pc_out, real_header);
     } else if (output_type == "XYZI") {
         pcl::PointCloud<pcl::PointXYZI>::Ptr pc_out(new pcl::PointCloud<pcl::PointXYZI>());
         handle_pc_msg<RsPointXYZIRT, pcl::PointXYZI>(pc_in, pc_out);
-        publish_points(pc_out, pc_msg.header);
+        publish_points(pc_out, real_header);
     }
 }
 
 int main(int argc, char **argv) {
     ros::init(argc, argv, "rs_converter");
-    ros::NodeHandle nh;
+    ros::NodeHandle nh("~");
+    nh.param<double>("timeOffset",timeOffset,0.0);
+    ROS_INFO("timeOffset=%f",timeOffset);
     if (argc < 3) {
         ROS_ERROR(
                 "Please specify input pointcloud type( XYZI or XYZIRT) and output pointcloud type(XYZI, XYZIR, XYZIRT)!!!");
